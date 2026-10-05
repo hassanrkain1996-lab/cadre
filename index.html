@@ -167,6 +167,8 @@ button:disabled { opacity: .5; cursor: not-allowed; }
       <div class="result" id="result" hidden>
         <span class="label">الملف الجاهز</span>
         <div id="resultMedia"></div>
+        <button class="primary" type="button" id="savePhotos" hidden>حفظ في معرض الصور</button>
+        <button type="button" id="saveFiles" hidden>حفظ في الملفات</button>
         <p id="resultNote">إذا لم يبدأ الحفظ، اضغط مطوّلاً على الملف واختر «حفظ».</p>
       </div>
     </aside>
@@ -474,6 +476,18 @@ button:disabled { opacity: .5; cursor: not-allowed; }
   $("cancel").onclick = () => state.cancel && state.cancel();
 
   // ---------- delivery ----------
+  // phones/tablets: the share sheet offers "Save Image" / "Save Video" straight to the gallery
+  const isTouch = window.matchMedia && matchMedia("(pointer: coarse)").matches;
+  function canShareFile(file) {
+    try { return !!(isTouch && navigator.canShare && navigator.share && navigator.canShare({ files: [file] })); }
+    catch (e) { return false; }
+  }
+  function downloadLink(blob, filename) {
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob); a.download = filename;
+    document.body.appendChild(a); a.click(); a.remove();
+  }
+
   async function deliver(blob, filename, kind) {
     const dl = await dlPromise;
     if (dl) {
@@ -484,17 +498,39 @@ button:disabled { opacity: .5; cursor: not-allowed; }
       }
     }
     if (!window.claude) {
-      // standalone copy of the tool (opened as a file in a browser)
-      const a = document.createElement("a");
-      a.href = URL.createObjectURL(blob); a.download = filename;
-      document.body.appendChild(a); a.click(); a.remove();
+      const file = new File([blob], filename, { type: blob.type || (kind === "video" ? "video/mp4" : "image/jpeg") });
+      if (canShareFile(file)) {
+        // saving needs a fresh tap, so offer the gallery button instead of auto-downloading
+        showResult(blob, kind, file);
+        toast(kind === "video" ? "الفيديو جاهز. اضغط «حفظ في معرض الصور»." : "الصورة جاهزة. اضغط «حفظ في معرض الصور».");
+        return;
+      }
+      downloadLink(blob, filename);
       toast("بدأ التحميل.");
     }
     showResult(blob, kind);
   }
 
+  $("savePhotos").onclick = async () => {
+    const file = $("savePhotos")._file; if (!file) return;
+    try {
+      await navigator.share({ files: [file] });
+    } catch (e) {
+      if (e && e.name === "AbortError") return;           // viewer closed the sheet
+      toast("تعذّر فتح نافذة المشاركة. استخدم «حفظ في الملفات».");
+    }
+  };
+  $("saveFiles").onclick = () => {
+    const file = $("savePhotos")._file; if (file) downloadLink(file, file.name);
+  };
+
   let resultUrl = null;
-  function showResult(blob, kind) {
+  function showResult(blob, kind, file) {
+    $("savePhotos").hidden = $("saveFiles").hidden = !file;
+    $("savePhotos")._file = file || null;
+    $("resultNote").textContent = file
+      ? (kind === "video" ? "اضغط «حفظ في معرض الصور» ثم اختر «حفظ الفيديو» من القائمة." : "اضغط «حفظ في معرض الصور» ثم اختر «حفظ الصورة» من القائمة.")
+      : "إذا لم يبدأ الحفظ، اضغط مطوّلاً على الملف واختر «حفظ».";
     if (resultUrl) URL.revokeObjectURL(resultUrl);
     resultUrl = URL.createObjectURL(blob);
     const box = $("resultMedia"); box.textContent = "";
@@ -503,6 +539,7 @@ button:disabled { opacity: .5; cursor: not-allowed; }
     if (kind === "video") { el.controls = true; el.playsInline = true; } else { el.alt = "الصورة مع الكادر"; }
     box.appendChild(el);
     $("result").hidden = false;
+    $("result").scrollIntoView({ behavior: "smooth", block: "nearest" });
   }
   function hideResult() { $("result").hidden = true; }
 
