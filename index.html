@@ -1,5 +1,16 @@
-<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head><body><title>كادر مفوضية جبل عامل</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
+<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://hassanrkain1996-lab.github.io/cadre/">
+<meta property="og:title" content="كادر مفوضية جبل عامل">
+<meta property="og:description" content="ارفع صورتك أو الفيديو وحمّلها جاهزة مع كادر المفوضية">
+<meta property="og:image" content="https://hassanrkain1996-lab.github.io/cadre/preview.jpg">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:locale" content="ar_LB">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="description" content="ارفع صورتك أو الفيديو وحمّلها جاهزة مع كادر المفوضية">
+<title>كادر مفوضية جبل عامل</title>
+</head><body><link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Readex+Pro:wght@500;700&family=IBM+Plex+Sans+Arabic:wght@400;500;600&display=swap">
 <style>
 /* Layout: workbench — large 16:9 preview on the start side, a narrow control column beside it; stacks on phones */
@@ -27,6 +38,9 @@
   --accent: #e5434d; --accent-fg: #ffffff; --cedar: #5cb67b; --stage: #0f1311; color-scheme: dark;
 }
 * { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html, body { margin: 0; }
+img { max-width: 100%; }
 body {
   background: var(--bg); color: var(--fg); font-family: var(--font-body); font-size: 15px; line-height: 1.6;
   padding-inline: 16px; padding-block: 20px 40px;
@@ -255,30 +269,51 @@ button:disabled { opacity: .5; cursor: not-allowed; }
   // ---------- loading files ----------
   function loadFile(file) {
     if (!file || state.busy) return;
-    const isVideo = file.type.startsWith("video/");
-    const isImage = file.type.startsWith("image/");
+    const ext = (file.name.split(".").pop() || "").toLowerCase();
+    const isVideo = file.type.startsWith("video/") || ["mp4", "mov", "m4v", "webm", "mkv", "3gp", "avi", "qt"].includes(ext);
+    const isImage = !isVideo && (file.type.startsWith("image/") || ["jpg", "jpeg", "png", "webp", "gif", "heic", "heif", "bmp"].includes(ext));
     if (!isVideo && !isImage) { toast("الملف غير مدعوم. اختر صورة (JPG/PNG) أو فيديو (MP4/MOV)."); return; }
-    if (state.url) URL.revokeObjectURL(state.url);
-    if (state.kind === "video" && state.src) state.src.pause();
     const url = URL.createObjectURL(file);
-    state.url = url; state.name = file.name.replace(/\.[^.]+$/, "");
+    const name = file.name.replace(/\.[^.]+$/, "");
     hideResult();
     if (isImage) {
       const img = new Image();
-      img.onload = () => { setSource("image", img); };
-      img.onerror = () => toast("تعذّر فتح الصورة. جرّب صيغة JPG أو PNG.");
+      img.onload = () => { setSource("image", img, url, name); };
+      img.onerror = () => { URL.revokeObjectURL(url); toast("تعذّر فتح الصورة. جرّب صيغة JPG أو PNG."); };
       img.src = url;
     } else {
       const v = document.createElement("video");
       v.muted = true; v.loop = true; v.playsInline = true; v.preload = "auto";
-      v.onloadeddata = () => { setSource("video", v); v.play().catch(() => {}); };
-      v.onerror = () => toast("تعذّر فتح الفيديو في هذا المتصفح. جرّب ملف MP4.");
-      v.src = url;
+      v.setAttribute("muted", ""); v.setAttribute("playsinline", "");
+      let done = false;
+      const fail = () => {
+        if (done) return; done = true; clearTimeout(timer);
+        v.removeAttribute("src"); v.remove(); URL.revokeObjectURL(url);
+        $("fileName").textContent = file.name + " — لم يُفتح";
+        toast("المتصفح لا يستطيع قراءة ترميز هذا الفيديو (غالباً HEVC من الآيفون). افتح الأداة من Safari، أو صوّر بإعداد «الأكثر توافقاً» (Most Compatible).", 9000);
+      };
+      const ready = () => {
+        if (done) return;
+        if (!v.videoWidth) { fail(); return; }   // audio decoded but no picture = unsupported video codec
+        done = true; clearTimeout(timer);
+        setSource("video", v, url, name); v.play().catch(() => {});
+      };
+      v.addEventListener("loadeddata", ready);
+      v.addEventListener("canplay", ready);
+      v.addEventListener("error", fail);
+      const timer = setTimeout(fail, 15000);
+      // keep the element attached (hidden) — some browsers won't decode detached videos
+      v.style.cssText = "position:fixed;width:1px;height:1px;opacity:0;pointer-events:none;inset-inline-start:0;top:0";
+      document.body.appendChild(v);
+      v.src = url; v.load();
     }
     $("fileName").textContent = file.name;
   }
 
-  function setSource(kind, src) {
+  function setSource(kind, src, url, name) {
+    if (state.kind === "video" && state.src && state.src !== src) { state.src.pause(); state.src.remove(); }
+    if (state.url && state.url !== url) URL.revokeObjectURL(state.url);
+    state.url = url; state.name = name;
     state.kind = kind; state.src = src;
     const [sw, sh] = srcSize(src);
     // portrait or square material defaults to "full + background"
@@ -347,8 +382,10 @@ button:disabled { opacity: .5; cursor: not-allowed; }
   function pickMime() {
     if (!window.MediaRecorder) return null;
     const list = [
-      ["video/mp4;codecs=avc1.42E01F,mp4a.40.2", "mp4"], ["video/mp4", "mp4"],
-      ["video/webm;codecs=vp9,opus", "webm"], ["video/webm;codecs=vp8,opus", "webm"], ["video/webm", "webm"]
+      ["video/mp4;codecs=avc1.640028,mp4a.40.2", "mp4"], ["video/mp4;codecs=avc1.4d0028,mp4a.40.2", "mp4"],
+      ["video/mp4;codecs=avc1,mp4a.40.2", "mp4"],
+      ["video/webm;codecs=vp9,opus", "webm"], ["video/webm;codecs=vp8,opus", "webm"], ["video/webm", "webm"],
+      ["video/mp4", "mp4"]
     ];
     for (const [m, ext] of list) if (MediaRecorder.isTypeSupported(m)) return { mime: m, ext };
     return null;
@@ -361,6 +398,7 @@ button:disabled { opacity: .5; cursor: not-allowed; }
 
     const v = document.createElement("video");
     v.src = state.url; v.playsInline = true; v.preload = "auto"; v.muted = false;
+    v.setAttribute("playsinline", ""); v.style.cssText = "position:fixed;width:1px;height:1px;opacity:0;pointer-events:none;top:0"; document.body.appendChild(v);
     const preview = state.src; preview.pause();
 
     // audio routed into the recording only, not to the speakers
@@ -388,6 +426,7 @@ button:disabled { opacity: .5; cursor: not-allowed; }
     };
     rec.onstop = () => {
       if (actx) actx.close().catch(() => {});
+      v.remove();
       setBusy(false);
       preview.play().catch(() => {}); redraw();
       if (cancelled) { toast("أُلغي التصدير."); return; }
@@ -468,9 +507,9 @@ button:disabled { opacity: .5; cursor: not-allowed; }
   function hideResult() { $("result").hidden = true; }
 
   let toastTimer = 0;
-  function toast(msg) {
+  function toast(msg, ms = 3200) {
     const t = $("toast"); t.textContent = msg; t.hidden = false;
-    clearTimeout(toastTimer); toastTimer = setTimeout(() => t.hidden = true, 3200);
+    clearTimeout(toastTimer); toastTimer = setTimeout(() => t.hidden = true, ms);
   }
 
   redraw();
